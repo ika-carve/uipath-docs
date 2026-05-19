@@ -1,0 +1,16 @@
+[Unit]
+Description=Claude Lab API
+After=network.target
+
+[Service]
+Type=simple
+User=labadmin
+WorkingDirectory=/home/labadmin/source/uipath-docs
+ExecStart=/usr/bin/python3 /home/labadmin/source/uipath-docs/lab_api.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
