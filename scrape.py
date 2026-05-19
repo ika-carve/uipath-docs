@@ -111,6 +111,12 @@ def is_same_domain(url: str) -> bool:
 
 def clean_markdown(text: str, title: str, url: str) -> str:
     """Add frontmatter and clean up markdown."""
+    # Strip cookie banner
+    text = re.sub(r"We use cookies.*?Accept and continue", "", text, flags=re.DOTALL|re.IGNORECASE)
+    text = re.sub(r"View cookie settings.*?Accept and continue", "", text, flags=re.DOTALL|re.IGNORECASE)
+    # Strip raw JS blocks
+    text = re.sub(r"!function\(\).*?}\(\)", "", text, flags=re.DOTALL)
+    text = re.sub(r"\(function\(\).*?}\(\)\)", "", text, flags=re.DOTALL)
     # Remove excessive blank lines
     text = re.sub(r"\n{4,}", "\n\n\n", text)
     # Remove navigation artifacts (common in doc sites)
@@ -164,7 +170,28 @@ class DocScraper:
             log.warning(f"Timeout on {url}, trying with domcontentloaded")
             self._page.goto(url, wait_until="domcontentloaded", timeout=20_000)
 
-        time.sleep(0.5)  # Let any post-load JS settle
+        # Dismiss cookie banner if present
+        for selector in [
+            "button:has-text('Accept and continue')",
+            "button:has-text('Accept all')",
+            "button:has-text('Accept')",
+        ]:
+            try:
+                btn = self._page.locator(selector).first
+                if btn.is_visible(timeout=1500):
+                    btn.click()
+                    time.sleep(0.3)
+                    break
+            except Exception:
+                pass
+        # Wait for main content
+        for sel in ["article", "main", "[role=main]", ".markdown"]:
+            try:
+                self._page.wait_for_selector(sel, timeout=4000)
+                break
+            except Exception:
+                pass
+        time.sleep(0.8)  # Let any post-load JS settle
 
         # Extract title
         title = self._page.title() or url
@@ -237,9 +264,8 @@ def scrape_section(scraper: DocScraper, section_slug: str, start_url: str, descr
         # Only scrape pages within this section's path
         parsed_start = urlparse(start_url if start_url.startswith("http") else BASE_URL + start_url)
         parsed_url = urlparse(url)
-        # Use the full start path directory as boundary — prevents cross-section crawling
-        section_prefix = parsed_start.path.rsplit("/", 1)[0]
-        if not parsed_url.path.startswith(section_prefix):
+        section_base = "/" + parsed_start.path.strip("/").split("/")[0]
+        if not parsed_url.path.startswith(section_base) and not parsed_url.path.startswith(parsed_start.path.rsplit("/", 1)[0]):
             continue
 
         file_slug = slug_from_url(url)
