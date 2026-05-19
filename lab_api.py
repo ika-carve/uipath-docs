@@ -28,14 +28,12 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-# ── Config ──────────────────────────────────────────────────────────────────
 PORT = 7337
-BIND = "127.0.0.1"  # localhost only — never 0.0.0.0
+BIND = "127.0.0.1"
 TOKEN_FILE = Path(__file__).parent / ".lab_api_token"
 LOG_FILE = Path("/var/log/lab-api.log")
 KUBECONFIG = "/opt/uipath-lab/ocp-install-new/auth/kubeconfig"
 
-# ── Whitelist (same as dispatch.sh) ─────────────────────────────────────────
 ALLOWED_PREFIXES = [
     "kubectl ",
     "oc ",
@@ -43,11 +41,15 @@ ALLOWED_PREFIXES = [
     "curl ",
     "cat /opt/uipath-docs/",
     "cat /opt/uipath-lab/",
+    "cat /tmp/",
+    "cat /home/labadmin/source/uipath-docs/",
     "ls ",
     "/opt/uipath-docs/venv/bin/python3 /opt/uipath-docs/",
+    "python3 /home/labadmin/source/uipath-docs/",
     "sudo /opt/uipath-lab/installer-2.2510.2/bin/uipathctl",
     "journalctl ",
     "systemctl status",
+    "systemctl restart lab-api",
     "df ",
     "free ",
     "uptime",
@@ -57,7 +59,6 @@ ALLOWED_PREFIXES = [
     "git -C /home/labadmin/source/uipath-docs",
 ]
 
-# ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -72,13 +73,11 @@ log = logging.getLogger(__name__)
 def load_token() -> str:
     if TOKEN_FILE.exists():
         return TOKEN_FILE.read_text().strip()
-    # Generate on first run
     import secrets
     token = secrets.token_hex(32)
     TOKEN_FILE.write_text(token)
     TOKEN_FILE.chmod(0o600)
     log.info(f"Generated new API token: {token}")
-    log.info(f"Token saved to: {TOKEN_FILE}")
     return token
 
 
@@ -112,23 +111,19 @@ class Handler(BaseHTTPRequestHandler):
         if not auth.startswith("Bearer "):
             return False
         supplied = auth[7:].strip()
-        # Constant-time comparison
         return hmac.compare_digest(supplied.encode(), TOKEN.encode())
 
     def do_POST(self):
         if not self.check_auth():
             self.send_json(401, {"error": "unauthorized"})
             return
-
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
-
         try:
             data = json.loads(body)
         except json.JSONDecodeError:
             self.send_json(400, {"error": "invalid JSON"})
             return
-
         if self.path == "/run":
             cmd = data.get("cmd", "").strip()
             if not cmd:
@@ -138,38 +133,24 @@ class Handler(BaseHTTPRequestHandler):
                 log.warning(f"DENIED: {cmd}")
                 self.send_json(403, {"error": f"command not whitelisted: {cmd}"})
                 return
-
             log.info(f"RUN: {cmd}")
             try:
-                result = subprocess.run(
-                    cmd, shell=True, capture_output=True, text=True,
-                    timeout=120, env=ENV
-                )
-                self.send_json(200, {
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "rc": result.returncode,
-                })
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120, env=ENV)
+                self.send_json(200, {"stdout": result.stdout, "stderr": result.stderr, "rc": result.returncode})
             except subprocess.TimeoutExpired:
                 self.send_json(504, {"error": "command timed out"})
             except Exception as e:
                 self.send_json(500, {"error": str(e)})
-
         elif self.path == "/status":
-            cmds = [
-                "oc get nodes -o wide",
-                "uptime",
-            ]
             out = {}
-            for c in cmds:
+            for c in ["oc get nodes -o wide", "uptime"]:
                 r = subprocess.run(c, shell=True, capture_output=True, text=True, timeout=30, env=ENV)
                 out[c] = r.stdout
             self.send_json(200, out)
-
         elif self.path == "/put":
             filepath = data.get("path", "")
             content = data.get("content", "")
-            allowed_write = ["/opt/uipath-docs/", "/opt/uipath-lab/manifests/", "/tmp/"]
+            allowed_write = ["/opt/uipath-docs/", "/opt/uipath-lab/manifests/", "/tmp/", "/home/labadmin/source/uipath-docs/"]
             if not any(filepath.startswith(p) for p in allowed_write):
                 self.send_json(403, {"error": f"write path not allowed: {filepath}"})
                 return
@@ -178,7 +159,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, {"ok": True, "path": filepath})
             except Exception as e:
                 self.send_json(500, {"error": str(e)})
-
         else:
             self.send_json(404, {"error": "unknown endpoint"})
 
@@ -194,7 +174,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     log.info(f"Starting lab API on {BIND}:{PORT}")
-    log.info(f"Token file: {TOKEN_FILE}")
     server = HTTPServer((BIND, PORT), Handler)
     try:
         server.serve_forever()

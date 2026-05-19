@@ -54,7 +54,7 @@ SECTIONS = [
     ("ai-center",               "/ai-center/latest",                                                 "AI Center"),
     ("aifabric",                "/aifabric/latest",                                                  "AI Fabric"),
     ("context-grounding",       "/context-grounding/latest",                                         "Context Grounding / ECS"),
-    ("uipathctl",               "/automation-suite/latest/installation-guide/uipathctl-reference",   "uipathctl CLI"),
+    ("uipathctl",               "/automation-suite/automation-suite/2.2510/reference-guide/about-uipathctl",   "uipathctl CLI"),
     ("studio",                  "/studio/latest/studio/about-studio",                                "Studio"),
     ("robot",                   "/robot/latest",                                                     "UiPath Robot"),
 ]
