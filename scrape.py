@@ -237,8 +237,9 @@ def scrape_section(scraper: DocScraper, section_slug: str, start_url: str, descr
         # Only scrape pages within this section's path
         parsed_start = urlparse(start_url if start_url.startswith("http") else BASE_URL + start_url)
         parsed_url = urlparse(url)
-        section_base = "/" + parsed_start.path.strip("/").split("/")[0]
-        if not parsed_url.path.startswith(section_base) and not parsed_url.path.startswith(parsed_start.path.rsplit("/", 1)[0]):
+        # Use the full start path directory as boundary — prevents cross-section crawling
+        section_prefix = parsed_start.path.rsplit("/", 1)[0]
+        if not parsed_url.path.startswith(section_prefix):
             continue
 
         file_slug = slug_from_url(url)
